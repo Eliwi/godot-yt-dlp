@@ -39,7 +39,7 @@ yt_dlp.connect("download_completed", self, "some_other_function")
  - The `ready` signal is emitted when YtDlp has finished the initial setup and is ready to download videos. 
  - The `download_completed` signal is emitted when YtDlp has finished downloading a video/audio.
 
-> You could also use [`yield`](https://docs.godotengine.org/en/stable/tutorials/scripting/gdscript/gdscript_basics.html#coroutines-signals) to await the signals
+> You could also use [`await`](https://docs.godotengine.org/en/latest/tutorials/scripting/gdscript/gdscript_basics.html#awaiting-for-signals) to await the signals
 
 ### Usage
 
@@ -62,13 +62,7 @@ yt_dlp.download(
  - `int`  **video_format:** Used to specify the video format to download, use the built-in enum `YtDlp.Video`.
  - `int` **audio_format:** Used to specify the audio format for conversion, use the built-in enum `YtDlp.Audio`.
  
- #### Supported formats audio/video formats:
- 
- ##### Video
- - `WEBM` *(default)*
- - `MP4`
- 
- ##### Audio
+ #### Supported audio formats:
  - `MP3`
  - `FLAC`
  - `AAC`
@@ -77,49 +71,56 @@ yt_dlp.download(
  - `M4A`
  - `WAV`
  
- ## Examples:
+ #### About video:
+ Currently there are two video formats available: 
+ - `WEBM`
+ - `MP4`
+
+However, playback is NOT natively supported by Godot 4. You have to write your own GDExtension to play these files.
  
- #### Downloading a video and playing it in using a `VideoPlayer`
+## Examples:
+
+#### Downloading a video, converting it to audio and playing it using a `AudioStreamPlayer` (Fully supported)
+
 ```gdscript
 var yt_dlp := YtDlp.new()
-yield(yt_dlp, "ready")
+await yt_dlp.ready()
+
+yt_dlp.download("https://youtu.be/PSPbY00UZ9w",
+		OS.get_user_data_dir(), "audio_clip", true, 1, YtDlp.Audio.MP3)
+
+await yt_dlp.download_completed()
+
+var mp3_file := FileAccess.open("user://audio_clip.mp3", FileAccess.READ)
+
+var stream := AudioStreamMp3.new()
+stream.data = mp3_file.get_buffer(mp3_file.get_length())
+
+mp3_file.flush()
+
+$AudioStreamPlayer.stream = stream
+$AudioStreamPlayer.play()
+```
+ 
+ #### Downloading a video and playing it in using a `VideoPlayer` (Currently not supported without own extensions)
+```gdscript
+var yt_dlp := YtDlp.new()
+await yt_dlp.ready
 
 yt_dlp.download("https://youtu.be/dQw4w9WgXcQ",
 		OS.get_user_data_dir(), "video_clip")
 
-yield(yt_dlp, "download_completed")
+await yt_dlp.download_completed
 
-var stream := VideoStreamWebm.new()
+var stream := VideoStream.new()
 stream.set_file("user://video_clip.webm")
 
 $VideoPlayer.stream = stream
 $VideoPlayer.play()
 ```
 
-#### Downloading a video, converting it to audio and playing it using a `AudioStreamPlayer`
-
-```gdscript
-var yt_dlp := YtDlp.new()
-yield(yt_dlp, "ready")
-
-yt_dlp.download("https://youtu.be/PSPbY00UZ9w",
-		OS.get_user_data_dir(), "audio_clip", true)
-
-yield(yt_dlp, "download_completed")
-
-var ogg_file := File.new()
-ogg_file.open("user://audio_clip.ogg", File.READ)
-
-var stream := AudioStreamOGGVorbis.new()
-stream.data = ogg_file.get_buffer(ogg_file.get_len())
-
-ogg_file.close()
-
-$AudioStreamPlayer.stream = stream
-$AudioStreamPlayer.play()
-```
 
 ## Social
-
+Original Creator:
 - https://twitter.com/NoeGameDev
 - https://www.youtube.com/c/Nolkaloid
