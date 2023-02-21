@@ -1,5 +1,5 @@
 # warning-ignore-all:return_value_discarded
-extends Reference
+extends RefCounted
 
 signal download_completed
 signal download_failed
@@ -32,12 +32,12 @@ func download(url: String, file_path: String = "user://") -> void:
 	var http_client := HTTPClient.new()
 	
 	print("[downloader] Connecting to %s" % host)
-	http_client.connect_to_host(host, -1, true)
+	http_client.connect_to_host(host, -1, TLSOptions.client())
 	
 	# Connection to the host
 	while http_client.get_status() in [HTTPClient.STATUS_CONNECTING, HTTPClient.STATUS_RESOLVING]:
 		http_client.poll()
-		yield(Engine.get_main_loop(), "idle_frame")
+		await Engine.get_main_loop().process_frame
 	
 	# Handle connection failure
 	if http_client.get_status() != HTTPClient.STATUS_CONNECTED:
@@ -51,7 +51,7 @@ func download(url: String, file_path: String = "user://") -> void:
 	# Request the resource
 	while http_client.get_status() == HTTPClient.STATUS_REQUESTING:
 		http_client.poll()
-		yield(Engine.get_main_loop(), "idle_frame")
+		await Engine.get_main_loop().process_frame
 	
 	# Handle the response
 	match http_client.get_response_code():
@@ -62,7 +62,7 @@ func download(url: String, file_path: String = "user://") -> void:
 		
 		HTTPClient.RESPONSE_OK:
 			print("[downloader] Storing response body into %s" % file_path)
-			yield(_store_body_to_file(http_client, file_path), "completed")
+			await _store_body_to_file(http_client, file_path)
 		
 		_:
 			push_error("[downloader] Request failed with code %d" % http_client.get_response_code())
@@ -73,8 +73,7 @@ func download(url: String, file_path: String = "user://") -> void:
 
 
 func _store_body_to_file(http_client: HTTPClient, file_path: String) -> void:
-	var file: File = File.new()
-	file.open(file_path, File.WRITE)
+	var file: FileAccess = FileAccess.open(file_path, FileAccess.WRITE)
 	
 	var percentage_loaded: float = 0.0
 	
@@ -82,12 +81,12 @@ func _store_body_to_file(http_client: HTTPClient, file_path: String) -> void:
 		http_client.poll()
 		file.store_buffer(http_client.read_response_body_chunk())
 		
-		var new_percentage := file.get_len() / float(http_client.get_response_body_length())
+		var new_percentage := file.get_length() / float(http_client.get_response_body_length())
 		
 		if percentage_loaded < new_percentage:
 			percentage_loaded = new_percentage
 			emit_signal("download_progress", percentage_loaded)
 		
-		yield(Engine.get_main_loop(), "idle_frame")
+		await Engine.get_main_loop().process_frame
 	
-	file.close()
+	file.flush()

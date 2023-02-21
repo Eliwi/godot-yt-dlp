@@ -1,6 +1,6 @@
 # warning-ignore-all:return_value_discarded
 class_name YtDlp
-extends Reference
+extends RefCounted
 
 
 signal ready
@@ -34,24 +34,24 @@ func _init() -> void:
 	var executable_name: String = "yt-dlp.exe" if OS.get_name() == "Windows" else "yt-dlp"
 	
 	# Downloads yt-dlp if non-existant otherwise attempt to update it
-	if not File.new().file_exists("user://%s" % executable_name):
+	if not FileAccess.file_exists("user://%s" % executable_name):
 		_downloader.download(yt_dlp_sources[OS.get_name()], "user://%s" % executable_name)
-		yield(_downloader, "download_completed")
+		await _downloader.download_completed
 	else:
-		_thread.start(self, "_update_yt_dlp", [executable_name])
-		yield(self, "_update_completed")
+		_thread.start(func(): _update_yt_dlp([executable_name]))
+		await _update_completed
 		# Waits for the next idle frame to join thread
-		yield(Engine.get_main_loop(), "idle_frame") 
+		await Engine.get_main_loop().process_frame
 		_thread.wait_to_finish()
 	
 	if OS.get_name() == "Windows":
-		yield(_setup_ffmpeg(), "completed")
+		await _setup_ffmpeg()
 	else:
-		OS.execute("chmod", PoolStringArray(["+x", OS.get_user_data_dir() + "/yt-dlp"]))
+		OS.execute("chmod", PackedStringArray(["+x", OS.get_user_data_dir() + "/yt-dlp"]))
 	
 	print("[yt-dlp] Ready!")
 	_is_ready = true
-	emit_signal("ready")
+	ready.emit()
 
 
 func download(url: String, destination: String, file_name: String, convert_to_audio: bool = false,
@@ -66,28 +66,28 @@ func download(url: String, destination: String, file_name: String, convert_to_au
 		# Increment the reference count while the thread is running
 		reference()
 		
-		_thread.start(self, "_execute_on_thread",
-				[url, destination, file_name, convert_to_audio, video_format, audio_format])
+		_thread.start(func(): _execute_on_thread([url, destination, file_name, convert_to_audio, video_format, audio_format]))
 	else:
 		push_error("[yt-dlp] Not ready yet")
 
 
 func _setup_ffmpeg() -> void:
 	print("[yt-dlp] Downloading ffmpeg and ffprobe")
-	var file = File.new()
+	var mpeg_path = "user://ffmpeg.exe"
+	var probe_path = "user://ffprobe.exe"
 
-	if not file.file_exists("user://ffmpeg.exe"):
-		_downloader.download(ffmpeg_sources["ffmpeg"], "user://ffmpeg.exe")
-		yield(_downloader, "download_completed")
+	if not FileAccess.file_exists(mpeg_path):
+		_downloader.download(ffmpeg_sources["ffmpeg"], mpeg_path)
+		await _downloader.download_completed
 	
-	if not file.file_exists("user://ffprobe.exe"):
-		_downloader.download(ffmpeg_sources["ffprobe"], "user://ffprobe.exe")
-		yield(_downloader, "download_completed")
+	if not FileAccess.file_exists(probe_path):
+		_downloader.download(ffmpeg_sources["ffprobe"], probe_path)
+		await _downloader.download_completed
 
 
 func _update_yt_dlp(arguments: Array) -> void:
 	OS.execute("%s/%s" % [OS.get_user_data_dir(), arguments[0]], ["--update"])
-	emit_signal("_update_completed")
+	_update_completed.emit()
 
 
 func _execute_on_thread(arguments: Array) -> void:
@@ -126,13 +126,13 @@ func _execute_on_thread(arguments: Array) -> void:
 	options_and_arguments.append_array(["--no-continue", "-o", file_path, url])
 	
 	var output: Array = []
-	OS.execute(executable, options_and_arguments, true, output)
+	OS.execute(executable, options_and_arguments, output, true)
 	
 	call_deferred("_thread_finished")
 
 
 func _thread_finished():
-	emit_signal("download_completed")
+	download_completed.emit()
 	_thread.wait_to_finish()
 	_is_ready = true
 	
